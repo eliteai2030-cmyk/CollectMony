@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>لوحة متابعة التحصيل اليومي للهندسات</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Cairo -->
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- SheetJS (XLSX) for Excel Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- html2canvas for Image Export -->
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Cairo', sans-serif;
+      background-color: #f3f4f6;
+    }
+    .tab-active {
+      border-bottom: 3px solid #2563eb;
+      color: #2563eb;
+      font-weight: 700;
+    }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body class="text-gray-800 antialiased min-h-screen flex flex-col">
+
+  <!-- Navbar -->
+  <header class="bg-white shadow-sm sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap justify-between items-center h-16">
+      <div class="flex items-center gap-3">
+        <div class="bg-blue-600 text-white p-2 rounded-lg font-bold text-lg">
+          📊
+        </div>
+        <h1 class="text-lg sm:text-xl font-extrabold text-gray-900">منظومة التحصيل اليومي للهندسات</h1>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex space-x-6 space-x-reverse h-full">
+        <button id="nav-dashboard" onclick="switchView('dashboard')" class="tab-active px-3 flex items-center text-sm sm:text-base transition">
+          لوحة العرض والرسوم البيانية
+        </button>
+        <button id="nav-admin" onclick="switchView('admin')" class="text-gray-500 hover:text-gray-800 px-3 flex items-center text-sm sm:text-base transition">
+          صفحة الأدمن (إدخال وتحديث)
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 left-5 z-50 hidden bg-gray-900 text-white px-5 py-3 rounded-lg shadow-lg text-sm font-semibold transition-opacity duration-300"></div>
+
+    <!-- ========================================== -->
+    <!-- PAGE 1: PUBLIC DASHBOARD & CHARTS          -->
+    <!-- ========================================== -->
+    <section id="view-dashboard" class="space-y-6">
+      <!-- Top Action & Date Filter Bar -->
+      <div class="bg-white p-4 rounded-xl shadow-sm flex flex-wrap justify-between items-center gap-4">
+        <div class="flex items-center gap-3">
+          <label for="dashboard-date" class="font-bold text-gray-700 text-sm sm:text-base">تاريخ العرض:</label>
+          <input type="date" id="dashboard-date" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          <span id="last-updated-badge" class="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-full hidden"></span>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="copyShareLink()" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition">
+            🔗 نسخ رابط المشاركة
+          </button>
+          <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition">
+            📥 تصدير Excel
+          </button>
+          <button onclick="exportToImage()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition">
+            🖼️ حفظ كصورة
+          </button>
+        </div>
+      </div>
+
+      <!-- Exportable Capture Area -->
+      <div id="capture-area" class="space-y-6 bg-[#f3f4f6] p-1 rounded-xl">
+        <!-- KPI Summary Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div class="bg-white p-5 rounded-xl shadow-sm border-r-4 border-blue-600">
+            <p class="text-sm text-gray-500 font-semibold">إجمالي معدل التحصيل اليومي المستهدف</p>
+            <p id="kpi-target" class="text-2xl sm:text-3xl font-extrabold text-gray-900 mt-1">0</p>
+          </div>
+          <div class="bg-white p-5 rounded-xl shadow-sm border-r-4 border-emerald-500">
+            <p class="text-sm text-gray-500 font-semibold">إجمالي التحصيل الفعلي اليومي</p>
+            <p id="kpi-actual" class="text-2xl sm:text-3xl font-extrabold text-emerald-600 mt-1">0</p>
+          </div>
+          <div class="bg-white p-5 rounded-xl shadow-sm border-r-4 border-amber-500">
+            <p class="text-sm text-gray-500 font-semibold">نسبة التحصيل الإجمالية</p>
+            <div class="flex items-baseline gap-2 mt-1">
+              <p id="kpi-percent" class="text-2xl sm:text-3xl font-extrabold text-amber-600">0%</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <!-- Bar Chart: Target vs Actual -->
+          <div class="bg-white p-5 rounded-xl shadow-sm">
+            <h2 class="text-base font-bold text-gray-800 mb-4">مقارنة المستهدف والفعلي لكل هندسة</h2>
+            <div class="relative h-72">
+              <canvas id="barChart"></canvas>
+            </div>
+          </div>
+
+          <!-- Horizontal Bar Chart: Percentage Achievement -->
+          <div class="bg-white p-5 rounded-xl shadow-sm">
+            <h2 class="text-base font-bold text-gray-800 mb-4">نسبة التحصيل المئوية (%) لكل هندسة</h2>
+            <div class="relative h-72">
+              <canvas id="percentChart"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary Table (Read-Only for Viewers) -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
+            <h2 class="text-base font-bold text-gray-800">بيانات التحصيل التفصيلية</h2>
+            <span id="table-date-label" class="text-xs font-semibold text-gray-500"></span>
+          </div>
+          <div class="overflow-x-auto">
+            <table id="public-table" class="min-w-full divide-y divide-gray-200 text-right">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">اسم الهندسة</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">معدل التحصيل اليومي</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">التحصيل الفعلي اليومي</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">نسبة التحصيل (%)</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">مؤشر الأداء</th>
+                </tr>
+              </thead>
+              <tbody id="public-tbody" class="divide-y divide-gray-100 text-sm"></tbody>
+              <tfoot class="bg-blue-50 font-extrabold text-gray-900 text-sm">
+                <tr>
+                  <td class="px-4 py-3">الإجمالي</td>
+                  <td id="pub-total-target" class="px-4 py-3">0</td>
+                  <td id="pub-total-actual" class="px-4 py-3 text-emerald-700">0</td>
+                  <td id="pub-total-percent" class="px-4 py-3 text-blue-700">0%</td>
+                  <td class="px-4 py-3">-</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================================== -->
+    <!-- PAGE 2: ADMIN LOGIN & DATA ENTRY           -->
+    <!-- ========================================== -->
+    <section id="view-admin" class="hidden">
+
+      <!-- Admin Login Card -->
+      <div id="admin-login-box" class="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-md mt-8">
+        <div class="text-center mb-6">
+          <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-100 text-blue-600 text-xl mb-3">
+            🔐
+          </div>
+          <h2 class="text-xl font-extrabold text-gray-900">تسجيل دخول الأدمن</h2>
+          <p class="text-sm text-gray-500 mt-1">أدخل البريد الإلكتروني وكلمة المرور لإدارة بيانات التحصيل</p>
+        </div>
+
+        <form id="login-form" class="space-y-4">
+          <div>
+            <label class="block text-sm font-bold text-gray-700 mb-1">البريد الإلكتروني</label>
+            <input type="email" id="admin-email" required placeholder="admin@example.com"
+              class="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-left" dir="ltr" />
+          </div>
+          <div>
+            <label class="block text-sm font-bold text-gray-700 mb-1">كلمة المرور</label>
+            <input type="password" id="admin-password" required placeholder="••••••••"
+              class="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none text-left" dir="ltr" />
+          </div>
+          <p id="login-error" class="text-red-600 text-xs font-semibold hidden"></p>
+          <button type="submit" id="login-btn"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition shadow-sm">
+            تسجيل الدخول
+          </button>
+        </form>
+      </div>
+
+      <!-- Admin Data Editor (Shown after Auth) -->
+      <div id="admin-editor-box" class="hidden space-y-6">
+        <div class="bg-white p-4 rounded-xl shadow-sm flex flex-wrap justify-between items-center gap-4">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-sm font-bold text-gray-700">مرحباً، <span id="admin-user-email" class="text-blue-600"></span></span>
+            <div class="h-4 w-px bg-gray-300 hidden sm:block"></div>
+            <label for="admin-date" class="text-sm font-bold text-gray-700">تاريخ الإدخال:</label>
+            <input type="date" id="admin-date" class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" />
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button onclick="saveDataToFirebase()" id="save-btn"
+              class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-sm transition flex items-center gap-1.5">
+              💾 حفظ وتحديث البيانات
+            </button>
+            <button onclick="logoutAdmin()"
+              class="bg-red-50 hover:bg-red-100 text-red-600 px-3.5 py-2 rounded-lg text-sm font-bold transition">
+              تسجيل خروج
+            </button>
+          </div>
+        </div>
+
+        <!-- Editable Table -->
+        <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-100 flex flex-wrap justify-between items-center gap-2">
+            <div>
+              <h3 class="text-base font-bold text-gray-800">إدخال التحصيل الفعلي اليومي للهندسات</h3>
+              <p class="text-xs text-gray-500">يتم حساب النسبة المئوية والإجمالي تلقائياً أثناء الكتابة</p>
+            </div>
+            <button onclick="resetTargetsToDefault()" class="text-xs text-blue-600 hover:underline font-semibold">
+              استعادة المعدلات الافتراضية
+            </button>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-right">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">م</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">اسم الهندسة</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">معدل التحصيل اليومي</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">التحصيل الفعلي اليومي</th>
+                  <th class="px-4 py-3 text-xs font-bold text-gray-600">نسبة التحصيل (%)</th>
+                </tr>
+              </thead>
+              <tbody id="admin-tbody" class="divide-y divide-gray-100 text-sm"></tbody>
+              <tfoot class="bg-blue-50 font-extrabold text-gray-900 text-sm">
+                <tr>
+                  <td class="px-4 py-3" colspan="2">الإجمالي</td>
+                  <td id="admin-total-target" class="px-4 py-3">0</td>
+                  <td id="admin-total-actual" class="px-4 py-3 text-emerald-700">0</td>
+                  <td id="admin-total-percent" class="px-4 py-3 text-blue-700">0%</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Firebase Modular SDK (v10) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyALtEWEn2PClBIYIk7SqpETCyB-20N4zJw",
+      authDomain: "collectmony-b6717.firebaseapp.com",
+      projectId: "collectmony-b6717",
+      storageBucket: "collectmony-b6717.firebasestorage.app",
+      messagingSenderId: "324421011215",
+      appId: "1:324421011215:web:3711d1a5b97e91245c207a",
+      measurementId: "G-LMEE8VVT6C"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Default Branches Data
+    const DEFAULT_BRANCHES = [
+      { id: "h01", name: "هندسة 01", target: 2010, actual: 0 },
+      { id: "h02", name: "هندسة 02", target: 1020, actual: 0 },
+      { id: "h03", name: "هندسة 03", target: 1110, actual: 0 },
+      { id: "h04", name: "هندسة 04", target: 2811, actual: 0 },
+      { id: "h05", name: "هندسة 05", target: 4013, actual: 0 },
+      { id: "h06", name: "هندسة 06", target: 2611, actual: 0 },
+      { id: "h07", name: "هندسة 07", target: 1011, actual: 0 },
+      { id: "h08", name: "هندسة 08", target: 2215, actual: 0 },
+      { id: "h09", name: "هندسة 09", target: 2010, actual: 0 },
+      { id: "h10", name: "هندسة 10", target: 6011, actual: 0 },
+      { id: "h11", name: "هندسة 11", target: 1011, actual: 0 },
+      { id: "h12", name: "هندسة 12", target: 3004, actual: 0 }
+    ];
+
+    let currentData = JSON.parse(JSON.stringify(DEFAULT_BRANCHES));
+    let unsubscribeSnapshot = null;
+    let barChartInstance = null;
+    let percentChartInstance = null;
+
+    // Get today's date in YYYY-MM-DD (local time)
+    function getTodayDate() {
+      const now = new Date();
+      const offset = now.getTimezoneOffset() * 60000;
+      return new Date(now - offset).toISOString().split('T')[0];
+    }
+
+    // Check URL query parameter ?date=YYYY-MM-DD
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialDate = urlParams.get('date') || getTodayDate();
+
+    const dashboardDateInput = document.getElementById('dashboard-date');
+    const adminDateInput = document.getElementById('admin-date');
+    dashboardDateInput.value = initialDate;
+    adminDateInput.value = initialDate;
+
+    // Toast Helper
+    window.showToast = function(msg, isError = false) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.className = `fixed bottom-5 left-5 z-50 px-5 py-3 rounded-lg shadow-lg text-sm font-semibold transition-opacity duration-300 ${isError ? 'bg-red-600 text-white' : 'bg-gray-900 text-white'}`;
+      toast.classList.remove('hidden');
+      setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 3500);
+    };
+
+    // Switch Views (SPA Router)
+    window.switchView = function(view) {
+      const dashSection = document.getElementById('view-dashboard');
+      const adminSection = document.getElementById('view-admin');
+      const navDash = document.getElementById('nav-dashboard');
+      const navAdmin = document.getElementById('nav-admin');
+
+      if (view === 'dashboard') {
+        dashSection.classList.remove('hidden');
+        adminSection.classList.add('hidden');
+        navDash.classList.add('tab-active');
+        navDash.classList.remove('text-gray-500');
+        navAdmin.classList.remove('tab-active');
+        navAdmin.classList.add('text-gray-500');
+      } else {
+        dashSection.classList.add('hidden');
+        adminSection.classList.remove('hidden');
+        navAdmin.classList.add('tab-active');
+        navAdmin.classList.remove('text-gray-500');
+        navDash.classList.remove('tab-active');
+        navDash.classList.add('text-gray-500');
+      }
+    };
+
+    // Listen to Firestore Document in Real-Time
+    function subscribeToDateData(dateStr) {
+      if (unsubscribeSnapshot) {
+        unsubscribeSnapshot();
+      }
+      document.getElementById('table-date-label').textContent = `التاريخ: ${dateStr}`;
+
+      const docRef = doc(db, "daily_collections", dateStr);
+      unsubscribeSnapshot = onSnapshot(docRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          currentData = data.branches || JSON.parse(JSON.stringify(DEFAULT_BRANCHES));
+          if (data.updatedAt) {
+            const badge = document.getElementById('last-updated-badge');
+            badge.textContent = `آخر تحديث: ${new Date(data.updatedAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}`;
+            badge.classList.remove('hidden');
+          }
+        } else {
+          // Initialize with default targets and 0 actual if no record exists for this date yet
+          currentData = JSON.parse(JSON.stringify(DEFAULT_BRANCHES));
+          document.getElementById('last-updated-badge').classList.add('hidden');
+        }
+        renderPublicDashboard();
+        renderAdminTable();
+      }, (error) => {
+        console.error("Firestore read error:", error);
+        showToast("خطأ في جلب البيانات من قاعدة البيانات. تأكد من صلاحيات Firestore.", true);
+      });
+    }
+
+    // Sync date inputs
+    dashboardDateInput.addEventListener('change', (e) => {
+      adminDateInput.value = e.target.value;
+      subscribeToDateData(e.target.value);
+    });
+
+    adminDateInput.addEventListener('change', (e) => {
+      dashboardDateInput.value = e.target.value;
+      subscribeToDateData(e.target.value);
+    });
+
+    // Calculate Totals Helper
+    function calculateStats(branches) {
+      let totalTarget = 0;
+      let totalActual = 0;
+      branches.forEach(b => {
+        totalTarget += Number(b.target) || 0;
+        totalActual += Number(b.actual) || 0;
+      });
+      const totalPercent = totalTarget > 0 ? ((totalActual / totalTarget) * 100).toFixed(1) : 0;
+      return { totalTarget, totalActual, totalPercent };
+    }
+
+    // Render Public Dashboard & Charts
+    function renderPublicDashboard() {
+      const { totalTarget, totalActual, totalPercent } = calculateStats(currentData);
+
+      // Update KPI Cards
+      document.getElementById('kpi-target').textContent = totalTarget.toLocaleString('en-US');
+      document.getElementById('kpi-actual').textContent = totalActual.toLocaleString('en-US');
+      document.getElementById('kpi-percent').textContent = `${totalPercent}%`;
+
+      // Update Public Table
+      const tbody = document.getElementById('public-tbody');
+      tbody.innerHTML = '';
+
+      const labels = [];
+      const targets = [];
+      const actuals = [];
+      const percentages = [];
+
+      currentData.forEach(item => {
+        const target = Number(item.target) || 0;
+        const actual = Number(item.actual) || 0;
+        const pct = target > 0 ? ((actual / target) * 100).toFixed(1) : 0;
+
+        labels.push(item.name);
+        targets.push(target);
+        actuals.push(actual);
+        percentages.push(Number(pct));
+
+        let badgeColor = 'bg-red-100 text-red-700';
+        if (pct >= 100) badgeColor = 'bg-emerald-100 text-emerald-700';
+        else if (pct >= 75) badgeColor = 'bg-amber-100 text-amber-700';
+
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50';
+        tr.innerHTML = `
+          <td class="px-4 py-3 font-bold text-gray-800">${item.name}</td>
+          <td class="px-4 py-3 text-gray-600">${target.toLocaleString('en-US')}</td>
+          <td class="px-4 py-3 font-bold text-gray-900">${actual.toLocaleString('en-US')}</td>
+          <td class="px-4 py-3">
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold ${badgeColor}">${pct}%</span>
+          </td>
+          <td class="px-4 py-3 w-36">
+            <div class="w-full bg-gray-200 rounded-full h-2">
+              <div class="bg-blue-600 h-2 rounded-full" style="width: ${Math.min(pct, 100)}%"></div>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('pub-total-target').textContent = totalTarget.toLocaleString('en-US');
+      document.getElementById('pub-total-actual').textContent = totalActual.toLocaleString('en-US');
+      document.getElementById('pub-total-percent').textContent = `${totalPercent}%`;
+
+      updateCharts(labels, targets, actuals, percentages);
+    }
+
+    // Initialize / Update Chart.js Charts
+    function updateCharts(labels, targets, actuals, percentages) {
+      Chart.defaults.font.family = "'Cairo', sans-serif";
+
+      // 1. Bar Chart: Target vs Actual
+      const ctxBar = document.getElementById('barChart').getContext('2d');
+      if (barChartInstance) barChartInstance.destroy();
+      barChartInstance = new Chart(ctxBar, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'معدل التحصيل المستهدف',
+              data: targets,
+              backgroundColor: 'rgba(148, 163, 184, 0.7)',
+              borderRadius: 4
+            },
+            {
+              label: 'التحصيل الفعلي',
+              data: actuals,
+              backgroundColor: 'rgba(37, 99, 235, 0.85)',
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top' }
+          },
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+
+      // 2. Percentage Bar Chart
+      const ctxPct = document.getElementById('percentChart').getContext('2d');
+      if (percentChartInstance) percentChartInstance.destroy();
+      percentChartInstance = new Chart(ctxPct, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'نسبة التحصيل (%)',
+              data: percentages,
+              backgroundColor: percentages.map(p => p >= 100 ? '#10b981' : (p >= 75 ? '#f59e0b' : '#ef4444')),
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              beginAtZero: true,
+              suggestedMax: 110,
+              ticks: { callback: val => val + '%' }
+            }
+          }
+        }
+      });
+    }
+
+    // Render Admin Editable Table
+    function renderAdminTable() {
+      const tbody = document.getElementById('admin-tbody');
+      tbody.innerHTML = '';
+
+      currentData.forEach((item, index) => {
+        const target = Number(item.target) || 0;
+        const actual = Number(item.actual) || 0;
+        const pct = target > 0 ? ((actual / target) * 100).toFixed(1) : 0;
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="px-4 py-2.5 text-gray-500 font-semibold">${index + 1}</td>
+          <td class="px-4 py-2.5 font-bold text-gray-800">${item.name}</td>
+          <td class="px-4 py-2.5">
+            <input type="number" min="0" step="any" value="${target}" data-index="${index}" data-field="target"
+              oninput="handleAdminInput(this)"
+              class="w-28 border border-gray-300 rounded-md px-2.5 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none bg-gray-50" />
+          </td>
+          <td class="px-4 py-2.5">
+            <input type="number" min="0" step="any" value="${actual}" data-index="${index}" data-field="actual"
+              oninput="handleAdminInput(this)"
+              class="w-32 border border-blue-300 rounded-md px-2.5 py-1 text-sm font-bold text-blue-900 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-blue-50/40" />
+          </td>
+          <td id="admin-pct-${index}" class="px-4 py-2.5 font-bold text-gray-700">${pct}%</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      updateAdminTotals();
+    }
+
+    // Live calculation as Admin types
+    window.handleAdminInput = function(input) {
+      const idx = Number(input.dataset.index);
+      const field = input.dataset.field;
+      const val = parseFloat(input.value) || 0;
+
+      currentData[idx][field] = val;
+
+      const target = Number(currentData[idx].target) || 0;
+      const actual = Number(currentData[idx].actual) || 0;
+      const pct = target > 0 ? ((actual / target) * 100).toFixed(1) : 0;
+
+      document.getElementById(`admin-pct-${idx}`).textContent = `${pct}%`;
+      updateAdminTotals();
+    };
+
+    function updateAdminTotals() {
+      const { totalTarget, totalActual, totalPercent } = calculateStats(currentData);
+      document.getElementById('admin-total-target').textContent = totalTarget.toLocaleString('en-US');
+      document.getElementById('admin-total-actual').textContent = totalActual.toLocaleString('en-US');
+      document.getElementById('admin-total-percent').textContent = `${totalPercent}%`;
+    }
+
+    window.resetTargetsToDefault = function() {
+      currentData.forEach((item, idx) => {
+        item.target = DEFAULT_BRANCHES[idx].target;
+      });
+      renderAdminTable();
+      showToast("تمت استعادة معدلات التحصيل الافتراضية (اضغط حفظ لتأكيد التغيير)");
+    };
+
+    // Save Data to Firestore
+    window.saveDataToFirebase = async function() {
+      if (!auth.currentUser) {
+        showToast("يجب تسجيل الدخول أولاً", true);
+        return;
+      }
+      const dateStr = adminDateInput.value;
+      if (!dateStr) {
+        showToast("يرجى اختيار التاريخ", true);
+        return;
+      }
+
+      const saveBtn = document.getElementById('save-btn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = "جاري الحفظ...";
+
+      try {
+        await setDoc(doc(db, "daily_collections", dateStr), {
+          date: dateStr,
+          branches: currentData,
+          updatedAt: new Date().toISOString(),
+          updatedBy: auth.currentUser.email
+        });
+        showToast("✅ تم حفظ وتحديث البيانات بنجاح!");
+      } catch (err) {
+        console.error(err);
+        showToast("❌ فشل الحفظ: تأكد من قواعد أمان Firebase", true);
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = "💾 حفظ وتحديث البيانات";
+      }
+    };
+
+    // Firebase Auth State Observer
+    onAuthStateChanged(auth, (user) => {
+      const loginBox = document.getElementById('admin-login-box');
+      const editorBox = document.getElementById('admin-editor-box');
+      if (user) {
+        loginBox.classList.add('hidden');
+        editorBox.classList.remove('hidden');
+        document.getElementById('admin-user-email').textContent = user.email;
+      } else {
+        loginBox.classList.remove('hidden');
+        editorBox.classList.add('hidden');
+      }
+    });
+
+    // Login Form Submit
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('admin-email').value.trim();
+      const password = document.getElementById('admin-password').value;
+      const errorEl = document.getElementById('login-error');
+      const loginBtn = document.getElementById('login-btn');
+
+      errorEl.classList.add('hidden');
+      loginBtn.disabled = true;
+      loginBtn.textContent = "جاري التحقق...";
+
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+        showToast("تم تسجيل الدخول بنجاح");
+      } catch (err) {
+        errorEl.textContent = "خطأ في البريد الإلكتروني أو كلمة المرور.";
+        errorEl.classList.remove('hidden');
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = "تسجيل الدخول";
+      }
+    });
+
+    // Logout
+    window.logoutAdmin = async function() {
+      await signOut(auth);
+      showToast("تم تسجيل الخروج");
+    };
+
+    // Export to Excel (.xlsx)
+    window.exportToExcel = function() {
+      const dateStr = dashboardDateInput.value;
+      const { totalTarget, totalActual, totalPercent } = calculateStats(currentData);
+
+      const rows = currentData.map(item => {
+        const target = Number(item.target) || 0;
+        const actual = Number(item.actual) || 0;
+        const pct = target > 0 ? ((actual / target) * 100).toFixed(1) + '%' : '0%';
+        return {
+          "اسم الهندسة": item.name,
+          "معدل التحصيل اليومي": target,
+          "التحصيل الفعلي اليومي": actual,
+          "نسبة التحصيل": pct
+        };
+      });
+
+      rows.push({
+        "اسم الهندسة": "الإجمالي",
+        "معدل التحصيل اليومي": totalTarget,
+        "التحصيل الفعلي اليومي": totalActual,
+        "نسبة التحصيل": `${totalPercent}%`
+      });
+
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "التحصيل اليومي");
+      XLSX.writeFile(workbook, `تحصيل_الهندسات_${dateStr}.xlsx`);
+      showToast("تم تصدير ملف Excel بنجاح");
+    };
+
+    // Export Dashboard as PNG Image
+    window.exportToImage = async function() {
+      const dateStr = dashboardDateInput.value;
+      const captureEl = document.getElementById('capture-area');
+      showToast("جاري تجهيز الصورة...");
+
+      try {
+        const canvas = await html2canvas(captureEl, {
+          scale: 2,
+          backgroundColor: "#f3f4f6",
+          useCORS: true
+        });
+        const link = document.createElement('a');
+        link.download = `تقرير_التحصيل_${dateStr}.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showToast("تم تحميل الصورة بنجاح");
+      } catch (err) {
+        console.error(err);
+        showToast("حدث خطأ أثناء حفظ الصورة", true);
+      }
+    };
+
+    // Copy Shareable Link with Date Parameter
+    window.copyShareLink = function() {
+      const dateStr = dashboardDateInput.value;
+      const url = new URL(window.location.href);
+      url.searchParams.set('date', dateStr);
+      navigator.clipboard.writeText(url.toString()).then(() => {
+        showToast("تم نسخ رابط المشاركة المباشر!");
+      });
+    };
+
+    // Initial Load
+    subscribeToDateData(initialDate);
+  </script>
+</body>
+</html>
